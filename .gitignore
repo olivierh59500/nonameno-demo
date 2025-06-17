@@ -1,0 +1,95 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+dist/
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+coverage.xml
+
+# Dependency directories
+vendor/
+
+# Go workspace files
+go.work
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.log
+
+# Build artifacts
+/spamdetect
+/build/
+/target/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# Admin UI
+admin-ui/node_modules/
+admin-ui/build/
+admin-ui/coverage/
+admin-ui/.pnp
+admin-ui/.pnp.js
+admin-ui/npm-debug.log*
+admin-ui/yarn-debug.log*
+admin-ui/yarn-error.log*
+
+# Database
+*.sql.bak
+*.dump
+
+# Profiling
+*.prof
+*.pprof
+
+# Documentation
+docs/swagger/
+
+# Certificates
+*.pem
+*.key
+*.crt
+*.csr
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Kubernetes
+*.kubeconfig
+kubeconfig
+
+# Terraform (if using)
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Secrets
+secrets/
+*.secret
