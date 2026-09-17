@@ -1,109 +1,104 @@
-# NONAMENO Demo - Go/Ebiten Implementation
+# NONAMENO Demo — Go/Ebitengine
 
-A faithful Go/Ebiten port of one of NONAMENO demo originally created using the NATIVE the original implementation framework. This implementation recreates the iconic scrolling text effects, 3D starfield, and animated letter transitions while maintaining the nostalgic feel of the original Atari ST demo scene.
+Native Go/Ebitengine implementation of the NONAMENO demo. Le projet cible macOS/desktop et Android `arm64-v8a` avec le
+même moteur de jeu.
 
-## Features
+## Fonctionnalités
 
-- **3D Starfield**: Classic perspective-correct starfield animation
-- **Animated Letters**: Elastic tweening animations for text transitions
-- **Scrolling Text**: Horizontal scrolltext with sine wave distortion
-- **YM Music Playback**: Authentic chiptune music using YM format
-- **Bitmap Font Rendering**: Original demo fonts with proper character mapping
-- **Frame-Perfect Timing**: Smooth 60 FPS rendering
+- champ d’étoiles 3D avec traînées ;
+- lettres animées avec interpolations élastiques ;
+- scrolltext sinusoïdal ;
+- musique YM en PCM stéréo 16 bits à 48 kHz ;
+- ressources PNG et YM embarquées dans le binaire.
 
-## Requirements
+## Version ordinateur
 
-- Go 1.19 or higher
-- [Ebiten v2](https://github.com/hajimehoshi/ebiten) game engine
-- [ym-player](https://github.com/olivierh59500/ym-player) for YM music playback
+Prérequis : Go 1.25 ou plus récent.
 
-## Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/olivierh59500/nonameno-demo
-cd nonameno-demo
-
-# Download dependencies
-go mod init nonameno-demo
-go get github.com/hajimehoshi/ebiten/v2
-go get github.com/olivierh59500/ym-player
-
-# Build and run
-go run main.go
+```sh
+go run ./cmd/nonameno
 ```
 
-## Assets Structure
+Validation :
 
-Place the following assets in the `assets/` directory:
-- `font.png` - Main 32x32 bitmap font
-- `font8.png` - Small 8x8 bitmap font for scrolltext
-- `logo.png` - TCB logo graphic
-- `music.ym` - YM format chiptune music
-
-## Technical Details
-
-### Font System
-The demo uses a custom bitmap font system that maps ASCII characters to sprite tiles. Three different font sizes are supported:
-- 32x32 pixels for main animated text
-- 8x8 pixels for scrolling text
-- Character mapping follows the original NATIVE demo layout
-
-### Animation System
-Letter animations use custom tweening with elastic easing functions:
-- **ElasticOut**: For letters appearing on screen
-- **ElasticIn**: For letters disappearing
-- Multiple delay patterns create wave effects
-
-### Audio System
-YM music playback is handled through a custom wrapper that:
-- Provides io.Reader interface for Ebiten audio
-- Supports looping playback
-- Maintains proper sample rate conversion
-
-### Effects Pipeline
-1. **3D Starfield** - Rendered first as background
-2. **Logo** - Static position at top
-3. **Animated Letters** - Sorted by Z-depth for proper overlap
-4. **Scrolltext** - Rendered last at bottom with sine distortion
-
-## Code Structure
-
-```
-main.go
-├── YMPlayer        - Audio playback wrapper
-├── Starfield3D     - 3D starfield effect
-├── Letter          - Animated letter structure
-├── Vec3            - 3D vector for positioning
-├── Tween           - Animation tweening system
-├── BitmapFont      - Font rendering system
-├── ScrollText      - Horizontal scrolling text
-└── Game            - Main game loop and state
+```sh
+go test ./...
+go test -race ./...
+go vet ./...
 ```
 
-## Performance Considerations
+## Version Android
 
-- All sprites are pre-loaded into memory
-- Font characters are cached as sub-images
-- Minimal allocations during render loop
-- Efficient depth sorting for letter overlap
+La configuration fournie utilise Ebitengine/`ebitenmobile` 2.9.11, Android API
+36, `minSdk 23`, NDK r28, Gradle 8.11.1, AGP 8.10.1 et Java 17. Elle produit un
+APK de débogage pour `arm64-v8a`, adapté aux Google Pixel récents.
 
-## Original Credits
+Avec un appareil unique branché, déverrouillé et autorisé pour ADB :
 
-This is a port of the NONAMENO demo originally created by:
-- **Code**: NONAMENO
-- **Graphics**: ???
-- **Original Platform**: Web
-- **Framework**: NATIVE
+```sh
+./scripts/run-android.sh
+```
 
-## License
+Le script génère l’AAR, compile, installe puis lance
+`com.olivierh.nonameno/.MainActivity`. Les principaux artefacts sont :
 
-This port maintains the spirit of the demo scene - share, learn, and create. The original demo was created for the love of the art form, and this port continues that tradition.
+```text
+android/app/libs/nonameno.aar
+android/app/build/outputs/apk/debug/app-debug.apk
+```
 
-## Contributing
+Pour compiler sans installer :
 
-Feel free to submit issues or pull requests if you find bugs or want to add features while maintaining the authenticity of the original demo.
+```sh
+export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+export JAVA_HOME=/opt/homebrew/opt/openjdk@17
 
-## Acknowledgments
+mkdir -p android/app/libs
+go run github.com/hajimehoshi/ebiten/v2/cmd/ebitenmobile@v2.9.11 \
+  bind \
+  -target android/arm64 \
+  -androidapi 23 \
+  -javapkg com.olivierh.nonameno \
+  -o android/app/libs/nonameno.aar \
+  ./mobile
+./android/gradlew -p android --console=plain clean assembleDebug
+```
 
-Special thanks to the Atari ST demo scene community for preserving these pieces of digital art history. The dedication to pushing hardware limits and creating beauty within constraints continues to inspire developers today.
+## Organisation
+
+```text
+game.go                 moteur partagé et ressources embarquées
+cmd/nonameno/           lanceur desktop
+mobile/                 pont pour ebitenmobile
+android/                activité Java et projet Gradle
+scripts/run-android.sh  construction, installation et lancement Android
+assets/                 polices, logo et musique YM
+```
+
+## Performances
+
+Le chemin audio réutilise un tampon mono et écrit directement dans le tampon
+PCM fourni par Ebitengine : il n’alloue pas pendant `YMPlayer.Read`. Les glyphes
+sont mis en cache, le tri de profondeur réutilise sa mémoire et l’horloge n’est
+lue qu’une fois par tick d’animation. Le lanceur desktop évite aussi de
+reconstruire une image identique quand la fréquence de l’écran dépasse les 60
+mises à jour par seconde.
+
+Mesures indicatives sur Apple M4 Max (`-benchtime=500ms`, moyenne de trois
+passes) :
+
+| Chemin mesuré | Avant | Après |
+|---|---:|---:|
+| lecture YM, 4096 frames | 40,4 µs, 40 960 o, 3 allocs | 11,5 µs, 0 o, 0 alloc |
+| mise à jour de 160 tweens | 12,0 µs | 1,36 µs |
+
+Les benchmarks intégrés peuvent être rejoués avec :
+
+```sh
+go test -run '^$' -bench . -benchmem
+```
+
+## Crédits
+
+- code original : NONAMENO ;
+- port Go : ce dépôt.

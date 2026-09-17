@@ -1,4 +1,5 @@
-package main
+// Package nonameno implements the NONAMENO demo remake.
+package nonameno
 
 import (
 	"bytes"
@@ -15,14 +16,14 @@ import (
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/audio"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/vector"
 	"github.com/olivierh59500/ym-player/pkg/stsound"
 )
 
 const (
-	screenWidth  = 640
-	screenHeight = 480
-	sampleRate   = 44100
+	ScreenWidth  = 640
+	ScreenHeight = 480
+	sampleRate   = 48000
 )
 
 // Embedded assets
@@ -39,14 +40,10 @@ var (
 
 // YMPlayer wraps the YM player for Ebiten audio
 type YMPlayer struct {
-	player       *stsound.StSound
-	sampleRate   int
-	buffer       []int16
-	mutex        sync.Mutex
-	position     int64
-	totalSamples int64
-	loop         bool
-	volume       float64
+	player *stsound.StSound
+	buffer []int16
+	mutex  sync.Mutex
+	loop   bool
 }
 
 // NewYMPlayer creates a new YM player instance
@@ -60,16 +57,10 @@ func NewYMPlayer(data []byte, sampleRate int, loop bool) (*YMPlayer, error) {
 
 	player.SetLoopMode(loop)
 
-	info := player.GetInfo()
-	totalSamples := int64(info.MusicTimeInMs) * int64(sampleRate) / 1000
-
 	return &YMPlayer{
-		player:       player,
-		sampleRate:   sampleRate,
-		buffer:       make([]int16, 4096),
-		totalSamples: totalSamples,
-		loop:         loop,
-		volume:       0.7,
+		player: player,
+		buffer: make([]int16, 4096),
+		loop:   loop,
 	}, nil
 }
 
@@ -78,9 +69,11 @@ func (y *YMPlayer) Read(p []byte) (n int, err error) {
 	y.mutex.Lock()
 	defer y.mutex.Unlock()
 
-	samplesNeeded := len(p) / 4
-	outBuffer := make([]int16, samplesNeeded*2)
+	if y.player == nil {
+		return 0, io.ErrClosedPipe
+	}
 
+	samplesNeeded := len(p) / 4
 	processed := 0
 	for processed < samplesNeeded {
 		chunkSize := samplesNeeded - processed
@@ -90,64 +83,25 @@ func (y *YMPlayer) Read(p []byte) (n int, err error) {
 
 		if !y.player.Compute(y.buffer[:chunkSize], chunkSize) {
 			if !y.loop {
-				for i := processed * 2; i < len(outBuffer); i++ {
-					outBuffer[i] = 0
-				}
+				clear(p[processed*4 : samplesNeeded*4])
 				err = io.EOF
 				break
 			}
 		}
 
 		for i := 0; i < chunkSize; i++ {
-			sample := int16(float64(y.buffer[i]) * y.volume)
-			outBuffer[(processed+i)*2] = sample
-			outBuffer[(processed+i)*2+1] = sample
+			sample := y.buffer[i] / 2
+			offset := (processed + i) * 4
+			p[offset] = byte(sample)
+			p[offset+1] = byte(sample >> 8)
+			p[offset+2] = byte(sample)
+			p[offset+3] = byte(sample >> 8)
 		}
 
 		processed += chunkSize
-		y.position += int64(chunkSize)
 	}
 
-	buf := make([]byte, 0, len(outBuffer)*2)
-	for _, sample := range outBuffer {
-		buf = append(buf, byte(sample), byte(sample>>8))
-	}
-
-	copy(p, buf)
-	n = len(buf)
-	if n > len(p) {
-		n = len(p)
-	}
-
-	return n, err
-}
-
-// Seek implements io.Seeker
-func (y *YMPlayer) Seek(offset int64, whence int) (int64, error) {
-	y.mutex.Lock()
-	defer y.mutex.Unlock()
-
-	var newPos int64
-	switch whence {
-	case io.SeekStart:
-		newPos = offset
-	case io.SeekCurrent:
-		newPos = y.position + offset
-	case io.SeekEnd:
-		newPos = y.totalSamples + offset
-	default:
-		return 0, fmt.Errorf("invalid whence: %d", whence)
-	}
-
-	if newPos < 0 {
-		newPos = 0
-	}
-	if newPos > y.totalSamples {
-		newPos = y.totalSamples
-	}
-
-	y.position = newPos
-	return newPos, nil
+	return samplesNeeded * 4, err
 }
 
 // Close releases resources
@@ -165,34 +119,31 @@ func (y *YMPlayer) Close() error {
 // Starfield3D represents a 3D starfield effect
 type Starfield3D struct {
 	stars    []Star3D
-	numStars int
 	speed    float64
 	width    float64
 	height   float64
 	centerX  float64
 	centerY  float64
 	depthMax float64
-	color    color.Color
 }
 
 // Star3D represents a single star in 3D space
 type Star3D struct {
-	x, y, z float64
-	prevX   float64
-	prevY   float64
+	x, y, z      float64
+	prevX, prevY float64
+	resetX       float64
+	resetY       float64
 }
 
 // NewStarfield3D creates a new 3D starfield
 func NewStarfield3D(numStars int, speed float64, width, height, centerX, centerY, depthMax float64) *Starfield3D {
 	sf := &Starfield3D{
-		numStars: numStars,
 		speed:    speed,
 		width:    width,
 		height:   height,
 		centerX:  centerX,
 		centerY:  centerY,
 		depthMax: depthMax,
-		color:    color.White,
 		stars:    make([]Star3D, numStars),
 	}
 
@@ -201,11 +152,15 @@ func NewStarfield3D(numStars int, speed float64, width, height, centerX, centerY
 		// Use better random distribution
 		angle := float64(i) * 2.0 * math.Pi / float64(numStars)
 		radius := math.Mod(float64(i*137), float64(numStars)) / float64(numStars) * width / 2
+		resetAngle := math.Mod(float64(i*137), 360.0) * math.Pi / 180.0
+		resetRadius := math.Mod(float64(i*89), width/2)
 
 		sf.stars[i] = Star3D{
-			x: math.Cos(angle) * radius,
-			y: math.Sin(angle) * radius,
-			z: math.Mod(float64(i*17), depthMax),
+			x:      math.Cos(angle) * radius,
+			y:      math.Sin(angle) * radius,
+			z:      math.Mod(float64(i*17), depthMax),
+			resetX: math.Cos(resetAngle) * resetRadius,
+			resetY: math.Sin(resetAngle) * resetRadius,
 		}
 
 		// Make sure no star starts at z=0
@@ -232,12 +187,8 @@ func (sf *Starfield3D) Update() {
 
 		// Reset star if it goes behind viewer
 		if sf.stars[i].z <= 0 {
-			// Create new star at far distance
-			angle := math.Mod(float64(i*137), 360.0) * math.Pi / 180.0
-			radius := math.Mod(float64(i*89), sf.width/2)
-
-			sf.stars[i].x = math.Cos(angle) * radius
-			sf.stars[i].y = math.Sin(angle) * radius
+			sf.stars[i].x = sf.stars[i].resetX
+			sf.stars[i].y = sf.stars[i].resetY
 			sf.stars[i].z = sf.depthMax
 			sf.stars[i].prevX = sf.centerX
 			sf.stars[i].prevY = sf.centerY
@@ -275,7 +226,7 @@ func (sf *Starfield3D) Draw(dst *ebiten.Image) {
 			}
 
 			// Draw the star as a filled rectangle
-			ebitenutil.DrawRect(dst, x-size/2, y-size/2, size, size, starColor)
+			vector.FillRect(dst, float32(x-size/2), float32(y-size/2), float32(size), float32(size), starColor, false)
 
 			// Draw motion trail for fast-moving stars
 			if star.z < sf.depthMax*0.3 && star.prevX != 0 && star.prevY != 0 {
@@ -286,7 +237,7 @@ func (sf *Starfield3D) Draw(dst *ebiten.Image) {
 					B: uint8(128 * brightness),
 					A: 128,
 				}
-				ebitenutil.DrawLine(dst, star.prevX, star.prevY, x, y, trailColor)
+				vector.StrokeLine(dst, float32(star.prevX), float32(star.prevY), float32(x), float32(y), 1, trailColor, false)
 			}
 		}
 	}
@@ -306,6 +257,14 @@ type Position struct {
 	x, y, z float64
 }
 
+type easing uint8
+
+const (
+	easeLinear easing = iota
+	easeElasticOut
+	easeElasticIn
+)
+
 // Tween represents an animation tween
 type Tween struct {
 	from       Position
@@ -313,20 +272,32 @@ type Tween struct {
 	startTime  float64
 	duration   float64
 	delay      float64
-	ease       string
+	ease       easing
 	onComplete func()
 	active     bool
 }
 
 // NewTween creates a new tween animation
 func NewTween(from, to Position, duration, delay float64, ease string, onComplete func()) *Tween {
+	return newTweenAt(from, to, duration, delay, ease, onComplete, float64(time.Now().UnixMilli()))
+}
+
+func newTweenAt(from, to Position, duration, delay float64, ease string, onComplete func(), startTime float64) *Tween {
+	easeType := easeLinear
+	switch ease {
+	case "ElasticOut":
+		easeType = easeElasticOut
+	case "ElasticIn":
+		easeType = easeElasticIn
+	}
+
 	return &Tween{
 		from:       from,
 		to:         to,
-		startTime:  float64(time.Now().UnixMilli()),
+		startTime:  startTime,
 		duration:   duration * 1000, // Convert to milliseconds
 		delay:      delay * 1000,    // Convert to milliseconds
-		ease:       ease,
+		ease:       easeType,
 		onComplete: onComplete,
 		active:     true,
 	}
@@ -334,11 +305,14 @@ func NewTween(from, to Position, duration, delay float64, ease string, onComplet
 
 // Update updates the tween and returns the current progress
 func (tw *Tween) Update(pos *Position) bool {
+	return tw.updateAt(pos, float64(time.Now().UnixMilli()))
+}
+
+func (tw *Tween) updateAt(pos *Position, now float64) bool {
 	if !tw.active {
 		return false
 	}
 
-	now := float64(time.Now().UnixMilli())
 	elapsed := now - tw.startTime - tw.delay
 
 	if elapsed < 0 {
@@ -359,9 +333,10 @@ func (tw *Tween) Update(pos *Position) bool {
 	t := elapsed / tw.duration
 
 	// Apply easing
-	if tw.ease == "ElasticOut" {
+	switch tw.ease {
+	case easeElasticOut:
 		t = elasticOut(t)
-	} else if tw.ease == "ElasticIn" {
+	case easeElasticIn:
 		t = elasticIn(t)
 	}
 
@@ -381,9 +356,11 @@ func elasticOut(t float64) float64 {
 	if t == 1 {
 		return 1
 	}
-	p := 0.3
-	s := p / 4
-	return math.Pow(2, -10*t)*math.Sin((t-s)*2*math.Pi/p) + 1
+	const (
+		period = 0.3
+		shift  = period / 4
+	)
+	return math.Exp2(-10*t)*math.Sin((t-shift)*2*math.Pi/period) + 1
 }
 
 // elasticIn easing function
@@ -394,10 +371,12 @@ func elasticIn(t float64) float64 {
 	if t == 1 {
 		return 1
 	}
-	p := 0.3
-	s := p / 4
+	const (
+		period = 0.3
+		shift  = period / 4
+	)
 	t -= 1
-	return -(math.Pow(2, 10*t) * math.Sin((t-s)*2*math.Pi/p))
+	return -(math.Exp2(10*t) * math.Sin((t-shift)*2*math.Pi/period))
 }
 
 // FontChar represents a character in the font
@@ -409,6 +388,7 @@ type FontChar struct {
 type BitmapFont struct {
 	image      *ebiten.Image
 	chars      map[byte]FontChar
+	glyphs     [256]*ebiten.Image
 	charWidth  int
 	charHeight int
 	tileStart  byte
@@ -428,7 +408,8 @@ func NewBitmapFont(img *ebiten.Image, charWidth, charHeight int, tileStart byte)
 // InitTile initializes the font tiles
 func (bf *BitmapFont) InitTile(tileWidth, tileHeight, tilesPerRow int) {
 	// For 32x32 font (font.png) - 6 lines of 10 characters
-	if tileWidth == 32 {
+	switch tileWidth {
+	case 32:
 		// Row 0: [NA]!"[NA][NA][NA][NA]"()
 		bf.chars[byte('!')] = FontChar{x: 1 * 32, y: 0 * 32, width: 32, height: 32}
 		bf.chars[byte('"')] = FontChar{x: 2 * 32, y: 0 * 32, width: 32, height: 32}
@@ -489,7 +470,7 @@ func (bf *BitmapFont) InitTile(tileWidth, tileHeight, tilesPerRow int) {
 
 		// Space character (use first position which is [NA])
 		bf.chars[byte(' ')] = FontChar{x: 0 * 32, y: 0 * 32, width: 32, height: 32}
-	} else if tileWidth == 8 {
+	case 8:
 		// For 8x8 font (font8.png) - 2 rows of 40 characters
 		// Row 0: [NA]!"[NA][NA][NA][NA]'()[NA][NA],-./0123456789:;[NA][NA][NA]?[NA]ABCDEFG
 		// Row 1: HIJKLMNOPQRSTUVWXYZ[NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA]
@@ -549,21 +530,24 @@ func (bf *BitmapFont) InitTile(tileWidth, tileHeight, tilesPerRow int) {
 		// Space character (use first position which is [NA])
 		bf.chars[byte(' ')] = FontChar{x: 0 * 8, y: 0 * 8, width: 8, height: 8}
 	}
+
+	for char, glyph := range bf.chars {
+		rect := image.Rect(glyph.x, glyph.y, glyph.x+glyph.width, glyph.y+glyph.height)
+		bf.glyphs[char] = bf.image.SubImage(rect).(*ebiten.Image)
+	}
 }
 
 // DrawTile draws a single character tile (used for animated letters)
 func (bf *BitmapFont) DrawTile(dst *ebiten.Image, char byte, x, y, z float64) {
-	fc, ok := bf.chars[char]
-	if !ok {
+	glyph := bf.glyphs[char]
+	if glyph == nil {
 		return
 	}
 
-	op := &ebiten.DrawImageOptions{}
+	var op ebiten.DrawImageOptions
 	op.GeoM.Scale(z, z)
-	op.GeoM.Translate(x-float64(fc.width)*z/2, y-float64(fc.height)*z/2)
-
-	srcRect := image.Rect(fc.x, fc.y, fc.x+fc.width, fc.y+fc.height)
-	dst.DrawImage(bf.image.SubImage(srcRect).(*ebiten.Image), op)
+	op.GeoM.Translate(x-float64(bf.charWidth)*z/2, y-float64(bf.charHeight)*z/2)
+	dst.DrawImage(glyph, &op)
 }
 
 // ScrollText manages horizontal scrolling text with sine wave distortion
@@ -572,27 +556,44 @@ type ScrollText struct {
 	font       *BitmapFont
 	scrollX    float64
 	speed      float64
-	sineParams []SineParam
+	textWidth  float64
+	sineParams [2]SineParam
 }
 
 // SineParam represents sine wave parameters for text distortion
 type SineParam struct {
-	value  float64
-	amp    float64
-	inc    float64
-	offset float64
+	value   float64
+	amp     float64
+	inc     float64
+	offset  float64
+	sinStep float64
+	cosStep float64
+}
+
+func newSineParam(value, amp, inc, offset float64) SineParam {
+	sinStep, cosStep := math.Sincos(offset)
+	return SineParam{
+		value: value, amp: amp, inc: inc, offset: offset,
+		sinStep: sinStep, cosStep: cosStep,
+	}
+}
+
+func (p SineParam) advance(sine, cosine float64) (float64, float64) {
+	return sine*p.cosStep + cosine*p.sinStep,
+		cosine*p.cosStep - sine*p.sinStep
 }
 
 // NewScrollText creates a new scrolling text
 func NewScrollText(text string, font *BitmapFont, speed float64) *ScrollText {
 	return &ScrollText{
-		text:    text,
-		font:    font,
-		scrollX: float64(screenWidth),
-		speed:   speed,
-		sineParams: []SineParam{
-			{value: 0, amp: 15, inc: 0.3, offset: 0.06},
-			{value: 0, amp: 15, inc: 0.2, offset: -0.04},
+		text:      text,
+		font:      font,
+		scrollX:   float64(ScreenWidth),
+		speed:     speed,
+		textWidth: float64(len(text) * font.charWidth),
+		sineParams: [2]SineParam{
+			newSineParam(0, 15, 0.3, 0.06),
+			newSineParam(0, 15, 0.2, -0.04),
 		},
 	}
 }
@@ -601,10 +602,8 @@ func NewScrollText(text string, font *BitmapFont, speed float64) *ScrollText {
 func (st *ScrollText) Update() {
 	st.scrollX -= st.speed
 
-	// Calculate text width
-	textWidth := len(st.text) * st.font.charWidth
-	if st.scrollX < -float64(textWidth) {
-		st.scrollX = float64(screenWidth)
+	if st.scrollX < -st.textWidth {
+		st.scrollX = float64(ScreenWidth)
 	}
 
 	// Update sine parameters
@@ -615,29 +614,33 @@ func (st *ScrollText) Update() {
 
 // Draw draws the scrolling text with sine distortion
 func (st *ScrollText) Draw(dst *ebiten.Image, baseY float64) {
-	// Draw each character with sine wave distortion
-	for i, char := range st.text {
-		x := st.scrollX + float64(i*st.font.charWidth)
+	charWidth := float64(st.font.charWidth)
+	first := 0
+	if st.scrollX <= -charWidth {
+		first = int(math.Floor((-charWidth-st.scrollX)/charWidth)) + 1
+	}
+	if first >= len(st.text) {
+		return
+	}
 
-		// Only draw if character is on screen
-		if x > -float64(st.font.charWidth) && x < float64(screenWidth) {
-			// Apply sine wave distortion to Y position
-			yOffset := 0.0
-			for _, param := range st.sineParams {
-				yOffset += param.amp * math.Sin(param.value+float64(i)*param.offset)
-			}
+	var sines, cosines [2]float64
+	for i, param := range st.sineParams {
+		sines[i], cosines[i] = math.Sincos(param.value + float64(first)*param.offset)
+	}
 
-			y := baseY + yOffset
-
-			// Draw the character
-			if fc, ok := st.font.chars[byte(char)]; ok {
-				op := &ebiten.DrawImageOptions{}
-				op.GeoM.Translate(x, y)
-
-				srcRect := image.Rect(fc.x, fc.y, fc.x+fc.width, fc.y+fc.height)
-				dst.DrawImage(st.font.image.SubImage(srcRect).(*ebiten.Image), op)
-			}
+	x := st.scrollX + float64(first)*charWidth
+	for i := first; i < len(st.text) && x < float64(ScreenWidth); i++ {
+		yOffset := st.sineParams[0].amp*sines[0] + st.sineParams[1].amp*sines[1]
+		if glyph := st.font.glyphs[st.text[i]]; glyph != nil {
+			var op ebiten.DrawImageOptions
+			op.GeoM.Translate(x, baseY+yOffset)
+			dst.DrawImage(glyph, &op)
 		}
+
+		for paramIndex, param := range st.sineParams {
+			sines[paramIndex], cosines[paramIndex] = param.advance(sines[paramIndex], cosines[paramIndex])
+		}
+		x += charWidth
 	}
 }
 
@@ -653,17 +656,18 @@ type Game struct {
 	font8  *BitmapFont
 
 	// Effects
-	starfield  *Starfield3D
-	scrollText *ScrollText
-	letters    []Letter
+	starfield   *Starfield3D
+	scrollText  *ScrollText
+	letters     []Letter
+	letterOrder []int
 
 	// Animation state (matching the original implementation)
-	counter    int
-	pageMax    int
-	delayMax   int
-	numPage    int
-	numDelay   int
-	frameCount int
+	counter        int
+	delayMax       int
+	numPage        int
+	numDelay       int
+	animationEpoch time.Time
+	animationTime  float64
 
 	// Text pages
 	textPages []string
@@ -673,17 +677,22 @@ type Game struct {
 	audioContext *audio.Context
 	audioPlayer  *audio.Player
 	ymPlayer     *YMPlayer
+	audioReady   bool
 }
 
 // NewGame creates a new game instance
 func NewGame() *Game {
+	now := time.Now()
 	g := &Game{
-		pageMax:  1,
-		delayMax: 3,
-		numPage:  0,
-		numDelay: int(math.Floor(math.Mod(float64(time.Now().UnixNano()), float64(3)))),
-		letters:  make([]Letter, 160), // 20x8 grid
-		counter:  0,
+		delayMax:    3,
+		numPage:     0,
+		numDelay:    int(math.Floor(math.Mod(float64(now.UnixNano()), float64(3)))),
+		letters:     make([]Letter, 160), // 20x8 grid
+		letterOrder: make([]int, 160),
+		counter:     0,
+	}
+	for i := range g.letterOrder {
+		g.letterOrder[i] = i
 	}
 
 	// Initialize text pages
@@ -713,9 +722,6 @@ func NewGame() *Game {
 
 	// Initialize letters (matching the original implementation init)
 	g.initLetters()
-
-	// Initialize audio
-	g.initAudio()
 
 	return g
 }
@@ -812,6 +818,10 @@ func (g *Game) loadImages() {
 }
 
 // initLetters initializes the letter animations (matching the original implementation logic)
+func (g *Game) newTween(from, to Position, duration, delay float64, ease string, onComplete func()) *Tween {
+	return newTweenAt(from, to, duration, delay, ease, onComplete, g.animationTime)
+}
+
 func (g *Game) initLetters() {
 	if g.font32 == nil {
 		return
@@ -836,7 +846,7 @@ func (g *Game) initLetters() {
 
 			// Create initial tween
 			delay := float64(g.delays[g.numDelay][num]) * 0.04
-			g.letters[num].tweenIn = NewTween(
+			g.letters[num].tweenIn = g.newTween(
 				g.letters[num].position,
 				g.letters[num].target,
 				2, // 2 seconds duration
@@ -861,7 +871,7 @@ func (g *Game) countMeIn() {
 		for j := 0; j < 8; j++ {
 			for i := 0; i < 20; i++ {
 				delay := float64(g.delays[g.numDelay][num]) * 0.04
-				g.letters[num].tweenOut = NewTween(
+				g.letters[num].tweenOut = g.newTween(
 					g.letters[num].position,                  // Current position
 					Position{x: 320, y: 240, z: 0.000000001}, // Back to center
 					1,                                        // 1 second duration
@@ -896,7 +906,7 @@ func (g *Game) countMeOut() {
 				}
 
 				delay := float64(g.delays[g.numDelay][num]) * 0.04
-				g.letters[num].tweenIn = NewTween(
+				g.letters[num].tweenIn = g.newTween(
 					g.letters[num].position,
 					g.letters[num].target,
 					2, // 2 seconds
@@ -926,18 +936,30 @@ func (g *Game) initAudio() {
 	g.audioPlayer, err = g.audioContext.NewPlayer(g.ymPlayer)
 	if err != nil {
 		log.Printf("Failed to create audio player: %v", err)
-		g.ymPlayer.Close()
+		if closeErr := g.ymPlayer.Close(); closeErr != nil {
+			log.Printf("Failed to close YM player: %v", closeErr)
+		}
 		g.ymPlayer = nil
 		return
 	}
 
-	g.audioPlayer.SetVolume(0.7)
 	g.audioPlayer.Play()
 }
 
 // Update updates the game state
 func (g *Game) Update() error {
-	g.frameCount++
+	// mobile.SetGame constructs the game before Android has installed the
+	// Ebitengine view. Opening the audio device is safe once Update is running.
+	if !g.audioReady {
+		g.audioReady = true
+		g.initAudio()
+	}
+
+	now := time.Now()
+	if g.animationEpoch.IsZero() {
+		g.animationEpoch = now
+	}
+	g.animationTime = float64(now.Sub(g.animationEpoch)) / float64(time.Millisecond)
 
 	// Update starfield
 	if g.starfield != nil {
@@ -951,13 +973,11 @@ func (g *Game) Update() error {
 
 	// Update letter animations
 	for i := range g.letters {
-		// Update incoming animation
 		if g.letters[i].tweenIn != nil && g.letters[i].tweenIn.active {
-			g.letters[i].tweenIn.Update(&g.letters[i].position)
+			g.letters[i].tweenIn.updateAt(&g.letters[i].position, g.animationTime)
 		}
-		// Update outgoing animation
 		if g.letters[i].tweenOut != nil && g.letters[i].tweenOut.active {
-			g.letters[i].tweenOut.Update(&g.letters[i].position)
+			g.letters[i].tweenOut.updateAt(&g.letters[i].position, g.animationTime)
 		}
 	}
 
@@ -976,9 +996,9 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Draw logo
 	if g.logoImg != nil {
-		op := &ebiten.DrawImageOptions{}
+		var op ebiten.DrawImageOptions
 		op.GeoM.Translate(50, 0)
-		screen.DrawImage(g.logoImg, op)
+		screen.DrawImage(g.logoImg, &op)
 	}
 
 	// Draw scrolling text at bottom
@@ -996,25 +1016,10 @@ func (g *Game) drawLetters(screen *ebiten.Image) {
 		return
 	}
 
-	// Create a sorted index by Z position
-	indices := make([]int, len(g.letters))
-	for i := range indices {
-		indices[i] = i
-	}
+	g.sortLettersByDepth()
 
-	// Sort indices by letter Z position (back to front)
-	for i := 0; i < len(indices)-1; i++ {
-		for j := i + 1; j < len(indices); j++ {
-			if g.letters[indices[i]].position.z > g.letters[indices[j]].position.z {
-				indices[i], indices[j] = indices[j], indices[i]
-			}
-		}
-	}
-
-	// Draw letters in sorted order
-	for _, idx := range indices {
+	for _, idx := range g.letterOrder {
 		letter := &g.letters[idx]
-		// Always draw letters with positive Z
 		if letter.position.z > 0 {
 			char := byte(letter.ltr + int(g.font32.tileStart))
 			g.font32.DrawTile(screen, char, letter.position.x, letter.position.y, letter.position.z)
@@ -1022,30 +1027,34 @@ func (g *Game) drawLetters(screen *ebiten.Image) {
 	}
 }
 
+func (g *Game) sortLettersByDepth() {
+	// The order changes gradually between frames, so an in-place insertion sort
+	// is both allocation-free and faster than rebuilding and sorting a slice.
+	for i := 1; i < len(g.letterOrder); i++ {
+		index := g.letterOrder[i]
+		depth := g.letters[index].position.z
+		j := i
+		for j > 0 && g.letters[g.letterOrder[j-1]].position.z > depth {
+			g.letterOrder[j] = g.letterOrder[j-1]
+			j--
+		}
+		g.letterOrder[j] = index
+	}
+}
+
 // Layout returns the screen dimensions
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
-	return screenWidth, screenHeight
+	return ScreenWidth, ScreenHeight
 }
 
 // Cleanup releases resources
 func (g *Game) Cleanup() {
 	if g.audioPlayer != nil {
-		g.audioPlayer.Close()
+		_ = g.audioPlayer.Close()
+		g.audioPlayer = nil
 	}
 	if g.ymPlayer != nil {
-		g.ymPlayer.Close()
+		_ = g.ymPlayer.Close()
+		g.ymPlayer = nil
 	}
-}
-
-func main() {
-	ebiten.SetWindowSize(screenWidth, screenHeight)
-	ebiten.SetWindowTitle("NONAMENO Demo - Go/Ebiten Conversion")
-
-	game := NewGame()
-
-	if err := ebiten.RunGame(game); err != nil {
-		log.Fatal(err)
-	}
-
-	game.Cleanup()
 }
