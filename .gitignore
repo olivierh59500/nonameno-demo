@@ -68,6 +68,14 @@ admin-ui/yarn-error.log*
 *.prof
 *.pprof
 
+# Android generated files
+android/.gradle/
+android/build/
+android/app/build/
+android/app/libs/*.aar
+android/app/libs/*-sources.jar
+android/local.properties
+
 # Documentation
 docs/swagger/
 
