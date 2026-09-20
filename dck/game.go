@@ -1,10 +1,13 @@
 // Package nonameno implements the NONAMENO demo remake.
 package nonameno
 
+import originalassets "nonameno-demo"
+
 import (
 	"bytes"
-	_ "embed"
+
 	"fmt"
+	"github.com/olivierh59500/democonstructionkit/scrolling"
 	"image"
 	"image/color"
 	_ "image/png"
@@ -28,17 +31,18 @@ const (
 
 // Embedded assets
 var (
-	//go:embed assets/font.png
-	fontData []byte
-	//go:embed assets/font8.png
-	font8Data []byte
-	//go:embed assets/logo.png
-	logoData []byte
-	//go:embed assets/music.ym
-	musicData []byte
+	fontData = originalassets.DCKAssetFontData()
+
+	font8Data = originalassets.DCKAssetFont8Data()
+
+	logoData = originalassets.DCKAssetLogoData()
+
+	musicData = originalassets.
+
+		// YMPlayer wraps the YM player for Ebiten audio
+		DCKAssetMusicData()
 )
 
-// YMPlayer wraps the YM player for Ebiten audio
 type YMPlayer struct {
 	player *stsound.StSound
 	buffer []int16
@@ -552,6 +556,7 @@ func (bf *BitmapFont) DrawTile(dst *ebiten.Image, char byte, x, y, z float64) {
 
 // ScrollText manages horizontal scrolling text with sine wave distortion
 type ScrollText struct {
+	renderer   *scrolling.Scrolling
 	text       string
 	font       *BitmapFont
 	scrollX    float64
@@ -614,34 +619,45 @@ func (st *ScrollText) Update() {
 
 // Draw draws the scrolling text with sine distortion
 func (st *ScrollText) Draw(dst *ebiten.Image, baseY float64) {
-	charWidth := float64(st.font.charWidth)
+	width := float64(st.font.charWidth)
 	first := 0
-	if st.scrollX <= -charWidth {
-		first = int(math.Floor((-charWidth-st.scrollX)/charWidth)) + 1
+	if st.scrollX <= -width {
+		first = int(math.Floor((-width-st.scrollX)/width)) + 1
 	}
 	if first >= len(st.text) {
 		return
 	}
-
+	if st.renderer == nil {
+		images := make([]*ebiten.Image, len(st.text))
+		for i := range st.text {
+			images[i] = st.font.glyphs[st.text[i]]
+		}
+		var err error
+		st.renderer, err = scrolling.FromImages(images, width)
+		if err != nil {
+			panic(err)
+		}
+	}
 	var sines, cosines [2]float64
 	for i, param := range st.sineParams {
 		sines[i], cosines[i] = math.Sincos(param.value + float64(first)*param.offset)
 	}
-
-	x := st.scrollX + float64(first)*charWidth
-	for i := first; i < len(st.text) && x < float64(ScreenWidth); i++ {
+	state := scrolling.IdentityState()
+	state.X = st.scrollX
+	state.First = first
+	state.Map = func(s scrolling.Sample, op *ebiten.DrawImageOptions) bool {
+		if s.X >= float64(ScreenWidth) {
+			return false
+		}
 		yOffset := st.sineParams[0].amp*sines[0] + st.sineParams[1].amp*sines[1]
-		if glyph := st.font.glyphs[st.text[i]]; glyph != nil {
-			var op ebiten.DrawImageOptions
-			op.GeoM.Translate(x, baseY+yOffset)
-			dst.DrawImage(glyph, &op)
+		op.GeoM.Reset()
+		op.GeoM.Translate(s.X, baseY+yOffset)
+		for index, param := range st.sineParams {
+			sines[index], cosines[index] = param.advance(sines[index], cosines[index])
 		}
-
-		for paramIndex, param := range st.sineParams {
-			sines[paramIndex], cosines[paramIndex] = param.advance(sines[paramIndex], cosines[paramIndex])
-		}
-		x += charWidth
+		return true
 	}
+	st.renderer.DrawAt(dst, state)
 }
 
 // Game represents the main game state

@@ -102,3 +102,9 @@ go test -run '^$' -bench . -benchmem
 
 - code original : NONAMENO ;
 - port Go : ce dépôt.
+
+## Optional DCK version
+
+The original implementation remains at its original paths. Run it with `go run ./cmd/nonameno`.
+
+The construction-kit version is in [dck/](dck/README.md). Run `go run ./dck/cmd/nonameno` from this directory. Both versions share the original assets.
