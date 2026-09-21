@@ -18,8 +18,8 @@ import (
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/audio"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	audio "github.com/olivierh59500/democonstructionkit/sound/output"
 	"github.com/olivierh59500/ym-player/pkg/stsound"
 )
 
@@ -698,7 +698,7 @@ type Game struct {
 
 // NewGame creates a new game instance
 func NewGame() *Game {
-	now := time.Now()
+	now := audio.Now()
 	g := &Game{
 		delayMax:    3,
 		numPage:     0,
@@ -971,7 +971,7 @@ func (g *Game) Update() error {
 		g.initAudio()
 	}
 
-	now := time.Now()
+	now := audio.Now()
 	if g.animationEpoch.IsZero() {
 		g.animationEpoch = now
 	}
