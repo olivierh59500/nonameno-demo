@@ -3,6 +3,7 @@ package nonameno
 
 import (
 	"bytes"
+	"github.com/olivierh59500/democonstructionkit/presets"
 	"image"
 	"image/color"
 	originalassets "nonameno-demo"
@@ -301,182 +302,11 @@ func elasticIn(t float64) float64 {
 	return -(math.Exp2(10*t) * math.Sin((t-shift)*2*math.Pi/period))
 }
 
-// FontChar represents a character in the font
-type FontChar struct {
-	x, y, width, height int
-}
-
-// BitmapFont manages bitmap font rendering
-type BitmapFont struct {
-	image      *ebiten.Image
-	chars      map[byte]FontChar
-	glyphs     [256]*ebiten.Image
-	charWidth  int
-	charHeight int
-	tileStart  byte
-}
-
-// NewBitmapFont creates a new bitmap font
-func NewBitmapFont(img *ebiten.Image, charWidth, charHeight int, tileStart byte) *BitmapFont {
-	return &BitmapFont{
-		image:      img,
-		chars:      make(map[byte]FontChar),
-		charWidth:  charWidth,
-		charHeight: charHeight,
-		tileStart:  tileStart,
-	}
-}
-
-// InitTile initializes the font tiles
-func (bf *BitmapFont) InitTile(tileWidth, tileHeight, tilesPerRow int) {
-	// For 32x32 font (font.png) - 6 lines of 10 characters
-	switch tileWidth {
-	case 32:
-		// Row 0: [NA]!"[NA][NA][NA][NA]"()
-		bf.chars[byte('!')] = FontChar{x: 1 * 32, y: 0 * 32, width: 32, height: 32}
-		bf.chars[byte('"')] = FontChar{x: 2 * 32, y: 0 * 32, width: 32, height: 32}
-		bf.chars[byte('\'')] = FontChar{x: 7 * 32, y: 0 * 32, width: 32, height: 32} // Using " position 7
-		bf.chars[byte('(')] = FontChar{x: 8 * 32, y: 0 * 32, width: 32, height: 32}
-		bf.chars[byte(')')] = FontChar{x: 9 * 32, y: 0 * 32, width: 32, height: 32}
-
-		// Row 1: [NA][NA],-.[NA]0123
-		bf.chars[byte(',')] = FontChar{x: 2 * 32, y: 1 * 32, width: 32, height: 32}
-		bf.chars[byte('-')] = FontChar{x: 3 * 32, y: 1 * 32, width: 32, height: 32}
-		bf.chars[byte('.')] = FontChar{x: 4 * 32, y: 1 * 32, width: 32, height: 32}
-		bf.chars[byte('0')] = FontChar{x: 6 * 32, y: 1 * 32, width: 32, height: 32}
-		bf.chars[byte('1')] = FontChar{x: 7 * 32, y: 1 * 32, width: 32, height: 32}
-		bf.chars[byte('2')] = FontChar{x: 8 * 32, y: 1 * 32, width: 32, height: 32}
-		bf.chars[byte('3')] = FontChar{x: 9 * 32, y: 1 * 32, width: 32, height: 32}
-
-		// Row 2: 456789[NA][NA][NA][NA]
-		bf.chars[byte('4')] = FontChar{x: 0 * 32, y: 2 * 32, width: 32, height: 32}
-		bf.chars[byte('5')] = FontChar{x: 1 * 32, y: 2 * 32, width: 32, height: 32}
-		bf.chars[byte('6')] = FontChar{x: 2 * 32, y: 2 * 32, width: 32, height: 32}
-		bf.chars[byte('7')] = FontChar{x: 3 * 32, y: 2 * 32, width: 32, height: 32}
-		bf.chars[byte('8')] = FontChar{x: 4 * 32, y: 2 * 32, width: 32, height: 32}
-		bf.chars[byte('9')] = FontChar{x: 5 * 32, y: 2 * 32, width: 32, height: 32}
-		bf.chars[byte(':')] = FontChar{x: 6 * 32, y: 2 * 32, width: 32, height: 32}
-
-		// Row 3: [NA]?[NA]ABCDEFG
-		bf.chars[byte('?')] = FontChar{x: 1 * 32, y: 3 * 32, width: 32, height: 32}
-		bf.chars[byte('A')] = FontChar{x: 3 * 32, y: 3 * 32, width: 32, height: 32}
-		bf.chars[byte('B')] = FontChar{x: 4 * 32, y: 3 * 32, width: 32, height: 32}
-		bf.chars[byte('C')] = FontChar{x: 5 * 32, y: 3 * 32, width: 32, height: 32}
-		bf.chars[byte('D')] = FontChar{x: 6 * 32, y: 3 * 32, width: 32, height: 32}
-		bf.chars[byte('E')] = FontChar{x: 7 * 32, y: 3 * 32, width: 32, height: 32}
-		bf.chars[byte('F')] = FontChar{x: 8 * 32, y: 3 * 32, width: 32, height: 32}
-		bf.chars[byte('G')] = FontChar{x: 9 * 32, y: 3 * 32, width: 32, height: 32}
-
-		// Row 4: HIJKLMNOPQ
-		bf.chars[byte('H')] = FontChar{x: 0 * 32, y: 4 * 32, width: 32, height: 32}
-		bf.chars[byte('I')] = FontChar{x: 1 * 32, y: 4 * 32, width: 32, height: 32}
-		bf.chars[byte('J')] = FontChar{x: 2 * 32, y: 4 * 32, width: 32, height: 32}
-		bf.chars[byte('K')] = FontChar{x: 3 * 32, y: 4 * 32, width: 32, height: 32}
-		bf.chars[byte('L')] = FontChar{x: 4 * 32, y: 4 * 32, width: 32, height: 32}
-		bf.chars[byte('M')] = FontChar{x: 5 * 32, y: 4 * 32, width: 32, height: 32}
-		bf.chars[byte('N')] = FontChar{x: 6 * 32, y: 4 * 32, width: 32, height: 32}
-		bf.chars[byte('O')] = FontChar{x: 7 * 32, y: 4 * 32, width: 32, height: 32}
-		bf.chars[byte('P')] = FontChar{x: 8 * 32, y: 4 * 32, width: 32, height: 32}
-		bf.chars[byte('Q')] = FontChar{x: 9 * 32, y: 4 * 32, width: 32, height: 32}
-
-		// Row 5: RSTUVWXYZ[NA]
-		bf.chars[byte('R')] = FontChar{x: 0 * 32, y: 5 * 32, width: 32, height: 32}
-		bf.chars[byte('S')] = FontChar{x: 1 * 32, y: 5 * 32, width: 32, height: 32}
-		bf.chars[byte('T')] = FontChar{x: 2 * 32, y: 5 * 32, width: 32, height: 32}
-		bf.chars[byte('U')] = FontChar{x: 3 * 32, y: 5 * 32, width: 32, height: 32}
-		bf.chars[byte('V')] = FontChar{x: 4 * 32, y: 5 * 32, width: 32, height: 32}
-		bf.chars[byte('W')] = FontChar{x: 5 * 32, y: 5 * 32, width: 32, height: 32}
-		bf.chars[byte('X')] = FontChar{x: 6 * 32, y: 5 * 32, width: 32, height: 32}
-		bf.chars[byte('Y')] = FontChar{x: 7 * 32, y: 5 * 32, width: 32, height: 32}
-		bf.chars[byte('Z')] = FontChar{x: 8 * 32, y: 5 * 32, width: 32, height: 32}
-
-		// Space character (use first position which is [NA])
-		bf.chars[byte(' ')] = FontChar{x: 0 * 32, y: 0 * 32, width: 32, height: 32}
-	case 8:
-		// For 8x8 font (font8.png) - 2 rows of 40 characters
-		// Row 0: [NA]!"[NA][NA][NA][NA]'()[NA][NA],-./0123456789:;[NA][NA][NA]?[NA]ABCDEFG
-		// Row 1: HIJKLMNOPQRSTUVWXYZ[NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA][NA]
-
-		// Row 0 characters
-		bf.chars[byte('!')] = FontChar{x: 1 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('"')] = FontChar{x: 2 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('\'')] = FontChar{x: 7 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('(')] = FontChar{x: 8 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte(')')] = FontChar{x: 9 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte(',')] = FontChar{x: 12 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('-')] = FontChar{x: 13 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('.')] = FontChar{x: 14 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('/')] = FontChar{x: 15 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('0')] = FontChar{x: 16 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('1')] = FontChar{x: 17 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('2')] = FontChar{x: 18 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('3')] = FontChar{x: 19 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('4')] = FontChar{x: 20 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('5')] = FontChar{x: 21 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('6')] = FontChar{x: 22 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('7')] = FontChar{x: 23 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('8')] = FontChar{x: 24 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('9')] = FontChar{x: 25 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte(':')] = FontChar{x: 26 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte(';')] = FontChar{x: 27 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('?')] = FontChar{x: 31 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('A')] = FontChar{x: 33 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('B')] = FontChar{x: 34 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('C')] = FontChar{x: 35 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('D')] = FontChar{x: 36 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('E')] = FontChar{x: 37 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('F')] = FontChar{x: 38 * 8, y: 0 * 8, width: 8, height: 8}
-		bf.chars[byte('G')] = FontChar{x: 39 * 8, y: 0 * 8, width: 8, height: 8}
-
-		// Row 1 characters (H to Z)
-		bf.chars[byte('H')] = FontChar{x: 0 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('I')] = FontChar{x: 1 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('J')] = FontChar{x: 2 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('K')] = FontChar{x: 3 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('L')] = FontChar{x: 4 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('M')] = FontChar{x: 5 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('N')] = FontChar{x: 6 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('O')] = FontChar{x: 7 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('P')] = FontChar{x: 8 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('Q')] = FontChar{x: 9 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('R')] = FontChar{x: 10 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('S')] = FontChar{x: 11 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('T')] = FontChar{x: 12 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('U')] = FontChar{x: 13 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('V')] = FontChar{x: 14 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('W')] = FontChar{x: 15 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('X')] = FontChar{x: 16 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('Y')] = FontChar{x: 17 * 8, y: 1 * 8, width: 8, height: 8}
-		bf.chars[byte('Z')] = FontChar{x: 18 * 8, y: 1 * 8, width: 8, height: 8}
-
-		// Space character (use first position which is [NA])
-		bf.chars[byte(' ')] = FontChar{x: 0 * 8, y: 0 * 8, width: 8, height: 8}
-	}
-
-	for char, glyph := range bf.chars {
-		rect := image.Rect(glyph.x, glyph.y, glyph.x+glyph.width, glyph.y+glyph.height)
-		bf.glyphs[char] = bf.image.SubImage(rect).(*ebiten.Image)
-	}
-}
-
-// DrawTile draws a single character tile (used for animated letters)
-func (bf *BitmapFont) DrawTile(dst *ebiten.Image, char byte, x, y, z float64) {
-	glyph := bf.glyphs[char]
-	if glyph == nil {
-		return
-	}
-
-	var op ebiten.DrawImageOptions
-	op.GeoM.Scale(z, z)
-	op.GeoM.Translate(x-float64(bf.charWidth)*z/2, y-float64(bf.charHeight)*z/2)
-	dst.DrawImage(glyph, &op)
-}
-
 // ScrollText manages horizontal scrolling text with sine wave distortion
 type ScrollText struct {
 	renderer   *scrolling.Scrolling
 	text       string
-	font       *BitmapFont
+	font       *scrolling.Atlas
 	scrollX    float64
 	speed      float64
 	textWidth  float64
@@ -507,13 +337,13 @@ func (p SineParam) advance(sine, cosine float64) (float64, float64) {
 }
 
 // NewScrollText creates a new scrolling text
-func NewScrollText(text string, font *BitmapFont, speed float64) *ScrollText {
+func NewScrollText(text string, font *scrolling.Atlas, speed float64) *ScrollText {
 	return &ScrollText{
 		text:      text,
 		font:      font,
 		scrollX:   float64(ScreenWidth),
 		speed:     speed,
-		textWidth: float64(len(text) * font.charWidth),
+		textWidth: float64(len(text)) * font.Metrics().LineHeight(),
 		sineParams: [2]SineParam{
 			newSineParam(0, 15, 0.3, 0.06),
 			newSineParam(0, 15, 0.2, -0.04),
@@ -537,7 +367,7 @@ func (st *ScrollText) Update() {
 
 // Draw draws the scrolling text with sine distortion
 func (st *ScrollText) Draw(dst *ebiten.Image, baseY float64) {
-	width := float64(st.font.charWidth)
+	width := float64(st.font.Metrics().LineHeight())
 	first := 0
 	if st.scrollX <= -width {
 		first = int(math.Floor((-width-st.scrollX)/width)) + 1
@@ -548,7 +378,7 @@ func (st *ScrollText) Draw(dst *ebiten.Image, baseY float64) {
 	if st.renderer == nil {
 		images := make([]*ebiten.Image, len(st.text))
 		for i := range st.text {
-			images[i] = st.font.glyphs[st.text[i]]
+			images[i], _, _ = st.font.ExactGlyph(rune(st.text[i]))
 		}
 		var err error
 		st.renderer, err = scrolling.FromImages(images, width)
@@ -586,8 +416,8 @@ type Game struct {
 	logoImg  *ebiten.Image
 
 	// Fonts
-	font32 *BitmapFont
-	font8  *BitmapFont
+	font32 *scrolling.Atlas
+	font8  *scrolling.Atlas
 
 	// Effects
 	starfield   *Starfield3D
@@ -638,12 +468,18 @@ func NewGame() *Game {
 
 	// Initialize fonts
 	if g.fontImg != nil {
-		g.font32 = NewBitmapFont(g.fontImg, 32, 32, 32)
-		g.font32.InitTile(32, 32, 10)
+		var err error
+		g.font32, err = presets.FontAtlas("nonameno-demo", g.fontImg)
+		if err != nil {
+			panic(err)
+		}
 	}
 	if g.font8Img != nil {
-		g.font8 = NewBitmapFont(g.font8Img, 8, 8, 32)
-		g.font8.InitTile(8, 8, 10)
+		var err error
+		g.font8, err = presets.FontAtlas("nonameno-small", g.font8Img)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	// Initialize effects
@@ -765,7 +601,7 @@ func (g *Game) initLetters() {
 	for j := 0; j < 8; j++ {
 		for i := 0; i < 20; i++ {
 			g.letters[num] = Letter{
-				ltr: int(g.textPages[g.numPage][num]) - int(g.font32.tileStart),
+				ltr: int(g.textPages[g.numPage][num]) - 32,
 				position: Position{
 					x: 320,
 					y: 240,
@@ -831,7 +667,7 @@ func (g *Game) countMeOut() {
 		num := 0
 		for j := 0; j < 8; j++ {
 			for i := 0; i < 20; i++ {
-				g.letters[num].ltr = int(g.textPages[g.numPage][num]) - int(g.font32.tileStart)
+				g.letters[num].ltr = int(g.textPages[g.numPage][num]) - 32
 				g.letters[num].position = Position{x: 320, y: 240, z: 0.000000001}
 				g.letters[num].target = Position{
 					x: float64(16 + i*32),
@@ -955,8 +791,14 @@ func (g *Game) drawLetters(screen *ebiten.Image) {
 	for _, idx := range g.letterOrder {
 		letter := &g.letters[idx]
 		if letter.position.z > 0 {
-			char := byte(letter.ltr + int(g.font32.tileStart))
-			g.font32.DrawTile(screen, char, letter.position.x, letter.position.y, letter.position.z)
+			char := byte(letter.ltr + 32)
+			glyph, metrics, _ := g.font32.ExactGlyph(rune(char))
+			if glyph != nil {
+				var op ebiten.DrawImageOptions
+				op.GeoM.Scale(letter.position.z, letter.position.z)
+				op.GeoM.Translate(letter.position.x-metrics.Advance*letter.position.z/2, letter.position.y-g.font32.Metrics().LineHeight()*letter.position.z/2)
+				screen.DrawImage(glyph, &op)
+			}
 		}
 	}
 }
