@@ -3,7 +3,9 @@ package nonameno
 
 import (
 	"bytes"
+	kit "github.com/olivierh59500/democonstructionkit"
 	"github.com/olivierh59500/democonstructionkit/presets"
+	"github.com/olivierh59500/democonstructionkit/sprites"
 	"image"
 	"image/color"
 	originalassets "nonameno-demo"
@@ -17,7 +19,6 @@ import (
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/vector"
 
 	audio "github.com/olivierh59500/democonstructionkit/sound/output"
 )
@@ -38,133 +39,6 @@ var (
 
 	musicData = originalassets.DCKAssetMusicData()
 )
-
-// Starfield3D represents a 3D starfield effect
-type Starfield3D struct {
-	stars    []Star3D
-	speed    float64
-	width    float64
-	height   float64
-	centerX  float64
-	centerY  float64
-	depthMax float64
-}
-
-// Star3D represents a single star in 3D space
-type Star3D struct {
-	x, y, z      float64
-	prevX, prevY float64
-	resetX       float64
-	resetY       float64
-}
-
-// NewStarfield3D creates a new 3D starfield
-func NewStarfield3D(numStars int, speed float64, width, height, centerX, centerY, depthMax float64) *Starfield3D {
-	sf := &Starfield3D{
-		speed:    speed,
-		width:    width,
-		height:   height,
-		centerX:  centerX,
-		centerY:  centerY,
-		depthMax: depthMax,
-		stars:    make([]Star3D, numStars),
-	}
-
-	// Initialize stars with random positions
-	for i := range sf.stars {
-		// Use better random distribution
-		angle := float64(i) * 2.0 * math.Pi / float64(numStars)
-		radius := math.Mod(float64(i*137), float64(numStars)) / float64(numStars) * width / 2
-		resetAngle := math.Mod(float64(i*137), 360.0) * math.Pi / 180.0
-		resetRadius := math.Mod(float64(i*89), width/2)
-
-		sf.stars[i] = Star3D{
-			x:      math.Cos(angle) * radius,
-			y:      math.Sin(angle) * radius,
-			z:      math.Mod(float64(i*17), depthMax),
-			resetX: math.Cos(resetAngle) * resetRadius,
-			resetY: math.Sin(resetAngle) * resetRadius,
-		}
-
-		// Make sure no star starts at z=0
-		if sf.stars[i].z < 1 {
-			sf.stars[i].z = 1
-		}
-	}
-
-	return sf
-}
-
-// Update updates the starfield positions
-func (sf *Starfield3D) Update() {
-	for i := range sf.stars {
-		// Store previous screen position for trails
-		if sf.stars[i].z > 0 {
-			scale := 200.0 / sf.stars[i].z
-			sf.stars[i].prevX = sf.stars[i].x*scale + sf.centerX
-			sf.stars[i].prevY = sf.stars[i].y*scale + sf.centerY
-		}
-
-		// Move star towards viewer
-		sf.stars[i].z -= sf.speed
-
-		// Reset star if it goes behind viewer
-		if sf.stars[i].z <= 0 {
-			sf.stars[i].x = sf.stars[i].resetX
-			sf.stars[i].y = sf.stars[i].resetY
-			sf.stars[i].z = sf.depthMax
-			sf.stars[i].prevX = sf.centerX
-			sf.stars[i].prevY = sf.centerY
-		}
-	}
-}
-
-// Draw draws the starfield to the destination image
-func (sf *Starfield3D) Draw(dst *ebiten.Image) {
-	for _, star := range sf.stars {
-		if star.z <= 0 {
-			continue
-		}
-
-		// 3D to 2D projection
-		scale := 200.0 / star.z
-		x := star.x*scale + sf.centerX
-		y := star.y*scale + sf.centerY
-
-		// Only draw if on screen
-		if x >= 0 && x < sf.width && y >= 0 && y < sf.height {
-			// Calculate star size based on depth
-			size := 3.0 - (star.z / sf.depthMax * 2.5)
-			if size < 0.5 {
-				size = 0.5
-			}
-
-			// Draw star with varying brightness based on depth
-			brightness := 1.0 - (star.z / sf.depthMax * 0.7)
-			starColor := color.RGBA{
-				R: uint8(255 * brightness),
-				G: uint8(255 * brightness),
-				B: uint8(255 * brightness),
-				A: 255,
-			}
-
-			// Draw the star as a filled rectangle
-			vector.FillRect(dst, float32(x-size/2), float32(y-size/2), float32(size), float32(size), starColor, false)
-
-			// Draw motion trail for fast-moving stars
-			if star.z < sf.depthMax*0.3 && star.prevX != 0 && star.prevY != 0 {
-				// Draw a line from previous position to current position
-				trailColor := color.RGBA{
-					R: uint8(128 * brightness),
-					G: uint8(128 * brightness),
-					B: uint8(128 * brightness),
-					A: 128,
-				}
-				vector.StrokeLine(dst, float32(star.prevX), float32(star.prevY), float32(x), float32(y), 1, trailColor, false)
-			}
-		}
-	}
-}
 
 // Letter represents an animated letter (matching the original implementation structure)
 type Letter struct {
@@ -420,7 +294,7 @@ type Game struct {
 	font8  *scrolling.Atlas
 
 	// Effects
-	starfield   *Starfield3D
+	starfield   *sprites.ProjectedField
 	scrollText  *ScrollText
 	letters     []Letter
 	letterOrder []int
@@ -483,7 +357,15 @@ func NewGame() *Game {
 	}
 
 	// Initialize effects
-	g.starfield = NewStarfield3D(500, 2, 640, 480, 320, 240, 100)
+	starConfig, err := presets.NonamenoProjectedStars(presets.DefaultNonamenoStarsConfig())
+	if err != nil {
+		panic(err)
+	}
+	starfield, err := sprites.NewProjectedField(starConfig)
+	if err != nil {
+		panic(err)
+	}
+	g.starfield = starfield
 
 	if g.font8 != nil {
 		scrollMsg := "AS ALWAYS I DUNNO WHAT TO WRITE ON THOSE STUPID SCROLLTEXT... SO HERE IS A LITTLE GREETINGS LIST :   TOTORMAN    SINK     BADBRAIN     MURDOCK     JFAH     HEMOROIDS     TLB     TCB     ULM     OVR     MEGABUSTERS     DHS     PARADOX     REZ     RAZOR     DEMO WILL NEVER DIE ......         "
@@ -733,7 +615,9 @@ func (g *Game) Update() error {
 
 	// Update starfield
 	if g.starfield != nil {
-		g.starfield.Update()
+		if err := g.starfield.Update(kit.Frame{}); err != nil {
+			return err
+		}
 	}
 
 	// Update scroll text
