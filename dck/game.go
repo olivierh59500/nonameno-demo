@@ -4,6 +4,7 @@ package nonameno
 import (
 	"bytes"
 	kit "github.com/olivierh59500/democonstructionkit"
+	"github.com/olivierh59500/democonstructionkit/motion"
 	"github.com/olivierh59500/democonstructionkit/presets"
 	"github.com/olivierh59500/democonstructionkit/sprites"
 	"image"
@@ -39,142 +40,6 @@ var (
 
 	musicData = originalassets.DCKAssetMusicData()
 )
-
-// Letter represents an animated letter (matching the original implementation structure)
-type Letter struct {
-	position Position
-	target   Position
-	ltr      int
-	tweenIn  *Tween
-	tweenOut *Tween
-}
-
-// Position represents a 3D position
-type Position struct {
-	x, y, z float64
-}
-
-type easing uint8
-
-const (
-	easeLinear easing = iota
-	easeElasticOut
-	easeElasticIn
-)
-
-// Tween represents an animation tween
-type Tween struct {
-	from       Position
-	to         Position
-	startTime  float64
-	duration   float64
-	delay      float64
-	ease       easing
-	onComplete func()
-	active     bool
-}
-
-// NewTween creates a new tween animation
-func NewTween(from, to Position, duration, delay float64, ease string, onComplete func()) *Tween {
-	return newTweenAt(from, to, duration, delay, ease, onComplete, float64(time.Now().UnixMilli()))
-}
-
-func newTweenAt(from, to Position, duration, delay float64, ease string, onComplete func(), startTime float64) *Tween {
-	easeType := easeLinear
-	switch ease {
-	case "ElasticOut":
-		easeType = easeElasticOut
-	case "ElasticIn":
-		easeType = easeElasticIn
-	}
-
-	return &Tween{
-		from:       from,
-		to:         to,
-		startTime:  startTime,
-		duration:   duration * 1000, // Convert to milliseconds
-		delay:      delay * 1000,    // Convert to milliseconds
-		ease:       easeType,
-		onComplete: onComplete,
-		active:     true,
-	}
-}
-
-// Update updates the tween and returns the current progress
-func (tw *Tween) Update(pos *Position) bool {
-	return tw.updateAt(pos, float64(time.Now().UnixMilli()))
-}
-
-func (tw *Tween) updateAt(pos *Position, now float64) bool {
-	if !tw.active {
-		return false
-	}
-
-	elapsed := now - tw.startTime - tw.delay
-
-	if elapsed < 0 {
-		return true // Still in delay
-	}
-
-	if elapsed >= tw.duration {
-		pos.x = tw.to.x
-		pos.y = tw.to.y
-		pos.z = tw.to.z
-		tw.active = false
-		if tw.onComplete != nil {
-			tw.onComplete()
-		}
-		return false
-	}
-
-	t := elapsed / tw.duration
-
-	// Apply easing
-	switch tw.ease {
-	case easeElasticOut:
-		t = elasticOut(t)
-	case easeElasticIn:
-		t = elasticIn(t)
-	}
-
-	// Interpolate
-	pos.x = tw.from.x + (tw.to.x-tw.from.x)*t
-	pos.y = tw.from.y + (tw.to.y-tw.from.y)*t
-	pos.z = tw.from.z + (tw.to.z-tw.from.z)*t
-
-	return true
-}
-
-// elasticOut easing function
-func elasticOut(t float64) float64 {
-	if t == 0 {
-		return 0
-	}
-	if t == 1 {
-		return 1
-	}
-	const (
-		period = 0.3
-		shift  = period / 4
-	)
-	return math.Exp2(-10*t)*math.Sin((t-shift)*2*math.Pi/period) + 1
-}
-
-// elasticIn easing function
-func elasticIn(t float64) float64 {
-	if t == 0 {
-		return 0
-	}
-	if t == 1 {
-		return 1
-	}
-	const (
-		period = 0.3
-		shift  = period / 4
-	)
-	t -= 1
-	return -(math.Exp2(10*t) * math.Sin((t-shift)*2*math.Pi/period))
-}
 
 // ScrollText manages horizontal scrolling text with sine wave distortion
 type ScrollText struct {
@@ -294,22 +159,17 @@ type Game struct {
 	font8  *scrolling.Atlas
 
 	// Effects
-	starfield   *sprites.ProjectedField
-	scrollText  *ScrollText
-	letters     []Letter
-	letterOrder []int
+	starfield    *sprites.ProjectedField
+	scrollText   *ScrollText
+	glyphPages   *motion.GlyphPageCycle
+	pageRenderer *sprites.GlyphPages
 
-	// Animation state (matching the original implementation)
-	counter        int
-	delayMax       int
-	numPage        int
-	numDelay       int
+	// Animation state
 	animationEpoch time.Time
 	animationTime  float64
 
 	// Text pages
 	textPages []string
-	delays    [][]int
 
 	// Audio
 	audioContext *audio.Context
@@ -321,21 +181,11 @@ type Game struct {
 // NewGame creates a new game instance
 func NewGame() *Game {
 	now := audio.Now()
-	g := &Game{
-		delayMax:    3,
-		numPage:     0,
-		numDelay:    int(math.Floor(math.Mod(float64(now.UnixNano()), float64(3)))),
-		letters:     make([]Letter, 160), // 20x8 grid
-		letterOrder: make([]int, 160),
-		counter:     0,
-	}
-	for i := range g.letterOrder {
-		g.letterOrder[i] = i
-	}
+	initialPattern := int(math.Floor(math.Mod(float64(now.UnixNano()), 3)))
+	g := &Game{}
 
 	// Initialize text pages
 	g.initTextPages()
-	g.initDelays()
 
 	// Load images
 	g.loadImages()
@@ -372,8 +222,20 @@ func NewGame() *Game {
 		g.scrollText = NewScrollText(scrollMsg, g.font8, 1)
 	}
 
-	// Initialize letters (matching the original implementation init)
-	g.initLetters()
+	if g.font32 != nil {
+		pageConfig, err := presets.NonamenoGlyphPages(g.textPages, initialPattern)
+		if err != nil {
+			panic(err)
+		}
+		g.glyphPages, err = motion.NewGlyphPageCycle(pageConfig)
+		if err != nil {
+			panic(err)
+		}
+		g.pageRenderer, err = sprites.NewGlyphPages(sprites.GlyphPagesConfig{Cycle: g.glyphPages, Font: g.font32})
+		if err != nil {
+			panic(err)
+		}
+	}
 
 	return g
 }
@@ -398,45 +260,6 @@ func (g *Game) initTextPages() {
 			" REZ KHEOPS EQUINOX " +
 			"TCB TLB ULM REPS TEX" +
 			"DELTA FORCE WRAP....",
-	}
-}
-
-// initDelays initializes the delay patterns
-func (g *Game) initDelays() {
-	g.delays = [][]int{
-		// Pattern 0 - Wave from corners
-		{
-			0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-			39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20,
-			40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59,
-			79, 78, 77, 76, 75, 74, 73, 72, 71, 70, 69, 68, 67, 66, 65, 64, 63, 62, 61, 60,
-			80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99,
-			119, 118, 117, 116, 115, 114, 113, 112, 111, 110, 109, 108, 107, 106, 105, 104, 103, 102, 101, 100,
-			120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138, 139,
-			159, 158, 157, 156, 155, 154, 153, 152, 151, 150, 149, 148, 147, 146, 145, 144, 143, 142, 141, 140,
-		},
-		// Pattern 1 - Vertical stripes
-		{
-			0, 15, 16, 31, 32, 47, 48, 63, 64, 79, 80, 95, 96, 111, 112, 127, 128, 143, 144, 159,
-			1, 14, 17, 30, 33, 46, 49, 62, 65, 78, 81, 94, 97, 110, 113, 126, 129, 142, 145, 158,
-			2, 13, 18, 29, 34, 45, 50, 61, 66, 77, 82, 93, 98, 109, 114, 125, 130, 141, 146, 157,
-			3, 12, 19, 28, 35, 44, 51, 60, 67, 76, 83, 92, 99, 108, 115, 124, 131, 140, 147, 156,
-			4, 11, 20, 27, 36, 43, 52, 59, 68, 75, 84, 91, 100, 107, 116, 123, 132, 139, 148, 155,
-			5, 10, 21, 26, 37, 42, 53, 58, 69, 74, 85, 90, 101, 106, 117, 122, 133, 138, 149, 154,
-			6, 9, 22, 25, 38, 41, 54, 57, 70, 73, 86, 89, 102, 105, 118, 121, 134, 137, 150, 153,
-			7, 8, 23, 24, 39, 40, 55, 56, 71, 72, 87, 88, 103, 104, 119, 120, 135, 136, 151, 152,
-		},
-		// Pattern 2 - Spiral
-		{
-			0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-			51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 20,
-			50, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 70, 21,
-			49, 94, 131, 132, 133, 134, 135, 136, 137, 138, 138, 140, 141, 142, 143, 144, 145, 112, 71, 22,
-			48, 93, 130, 159, 158, 157, 156, 155, 154, 153, 152, 151, 150, 149, 148, 147, 146, 113, 72, 23,
-			47, 92, 129, 128, 127, 126, 125, 124, 123, 122, 121, 120, 119, 118, 117, 116, 115, 114, 73, 24,
-			46, 91, 90, 89, 88, 87, 86, 85, 84, 83, 82, 81, 80, 79, 78, 77, 76, 75, 74, 25,
-			45, 44, 43, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26,
-		},
 	}
 }
 
@@ -466,111 +289,6 @@ func (g *Game) loadImages() {
 		g.logoImg = ebiten.NewImageFromImage(img)
 	} else {
 		log.Printf("Failed to load logo: %v", err)
-	}
-}
-
-// initLetters initializes the letter animations (matching the original implementation logic)
-func (g *Game) newTween(from, to Position, duration, delay float64, ease string, onComplete func()) *Tween {
-	return newTweenAt(from, to, duration, delay, ease, onComplete, g.animationTime)
-}
-
-func (g *Game) initLetters() {
-	if g.font32 == nil {
-		return
-	}
-
-	num := 0
-	for j := 0; j < 8; j++ {
-		for i := 0; i < 20; i++ {
-			g.letters[num] = Letter{
-				ltr: int(g.textPages[g.numPage][num]) - 32,
-				position: Position{
-					x: 320,
-					y: 240,
-					z: 0.000000001,
-				},
-				target: Position{
-					x: float64(16 + i*32),
-					y: float64(16 + 32*5 + j*32 - 16),
-					z: 1.0,
-				},
-			}
-
-			// Create initial tween
-			delay := float64(g.delays[g.numDelay][num]) * 0.04
-			g.letters[num].tweenIn = g.newTween(
-				g.letters[num].position,
-				g.letters[num].target,
-				2, // 2 seconds duration
-				delay,
-				"ElasticOut",
-				g.countMeIn,
-			)
-
-			num++
-		}
-	}
-}
-
-// countMeIn is called when a letter animation completes
-func (g *Game) countMeIn() {
-	g.counter++
-	if g.counter == 160 {
-		// All letters have arrived, prepare reverse animation
-		g.numDelay = (g.numDelay + 1) % g.delayMax
-
-		num := 0
-		for j := 0; j < 8; j++ {
-			for i := 0; i < 20; i++ {
-				delay := float64(g.delays[g.numDelay][num]) * 0.04
-				g.letters[num].tweenOut = g.newTween(
-					g.letters[num].position,                  // Current position
-					Position{x: 320, y: 240, z: 0.000000001}, // Back to center
-					1,                                        // 1 second duration
-					delay,
-					"ElasticIn",
-					g.countMeOut,
-				)
-				num++
-			}
-		}
-		g.counter = 0
-	}
-}
-
-// countMeOut is called when a letter reverse animation completes
-func (g *Game) countMeOut() {
-	g.counter++
-	if g.counter == 160 {
-		// All letters have left, change page
-		g.numPage = (g.numPage + 1) % len(g.textPages)
-		g.numDelay = (g.numDelay + 1) % g.delayMax
-
-		num := 0
-		for j := 0; j < 8; j++ {
-			for i := 0; i < 20; i++ {
-				g.letters[num].ltr = int(g.textPages[g.numPage][num]) - 32
-				g.letters[num].position = Position{x: 320, y: 240, z: 0.000000001}
-				g.letters[num].target = Position{
-					x: float64(16 + i*32),
-					y: float64(16 + 32*5 + j*32 - 16),
-					z: 1.0,
-				}
-
-				delay := float64(g.delays[g.numDelay][num]) * 0.04
-				g.letters[num].tweenIn = g.newTween(
-					g.letters[num].position,
-					g.letters[num].target,
-					2, // 2 seconds
-					delay,
-					"ElasticOut",
-					g.countMeIn,
-				)
-				g.letters[num].tweenOut = nil // Clear old tween
-				num++
-			}
-		}
-		g.counter = 0
 	}
 }
 
@@ -625,13 +343,9 @@ func (g *Game) Update() error {
 		g.scrollText.Update()
 	}
 
-	// Update letter animations
-	for i := range g.letters {
-		if g.letters[i].tweenIn != nil && g.letters[i].tweenIn.active {
-			g.letters[i].tweenIn.updateAt(&g.letters[i].position, g.animationTime)
-		}
-		if g.letters[i].tweenOut != nil && g.letters[i].tweenOut.active {
-			g.letters[i].tweenOut.updateAt(&g.letters[i].position, g.animationTime)
+	if g.glyphPages != nil {
+		if err := g.glyphPages.UpdateAt(g.animationTime); err != nil {
+			return err
 		}
 	}
 
@@ -660,45 +374,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		g.scrollText.Draw(screen, 480-8-30)
 	}
 
-	// Sort and draw letters by Z depth
-	g.drawLetters(screen)
-}
-
-// drawLetters draws the animated letters sorted by depth
-func (g *Game) drawLetters(screen *ebiten.Image) {
-	if g.font32 == nil {
-		return
-	}
-
-	g.sortLettersByDepth()
-
-	for _, idx := range g.letterOrder {
-		letter := &g.letters[idx]
-		if letter.position.z > 0 {
-			char := byte(letter.ltr + 32)
-			glyph, metrics, _ := g.font32.ExactGlyph(rune(char))
-			if glyph != nil {
-				var op ebiten.DrawImageOptions
-				op.GeoM.Scale(letter.position.z, letter.position.z)
-				op.GeoM.Translate(letter.position.x-metrics.Advance*letter.position.z/2, letter.position.y-g.font32.Metrics().LineHeight()*letter.position.z/2)
-				screen.DrawImage(glyph, &op)
-			}
-		}
-	}
-}
-
-func (g *Game) sortLettersByDepth() {
-	// The order changes gradually between frames, so an in-place insertion sort
-	// is both allocation-free and faster than rebuilding and sorting a slice.
-	for i := 1; i < len(g.letterOrder); i++ {
-		index := g.letterOrder[i]
-		depth := g.letters[index].position.z
-		j := i
-		for j > 0 && g.letters[g.letterOrder[j-1]].position.z > depth {
-			g.letterOrder[j] = g.letterOrder[j-1]
-			j--
-		}
-		g.letterOrder[j] = index
+	if g.pageRenderer != nil {
+		g.pageRenderer.Draw(screen)
 	}
 }
 

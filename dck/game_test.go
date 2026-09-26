@@ -7,10 +7,10 @@ import (
 	"math"
 	"testing"
 
+	"github.com/olivierh59500/democonstructionkit/motion"
+	"github.com/olivierh59500/democonstructionkit/presets"
 	"github.com/olivierh59500/democonstructionkit/sound"
 )
-
-var benchmarkPosition Position
 
 func TestMusicStreamReadProducesStereoWithoutAllocating(t *testing.T) {
 	player, err := sound.Open("music.ym", musicData, sound.Options{SampleRate: sampleRate, Loop: true, PCMFormat: sound.PCM16, Gain: 0.5})
@@ -65,26 +65,19 @@ func TestMusicStreamCloseIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestSortLettersByDepth(t *testing.T) {
-	game := &Game{
-		letters:     make([]Letter, 160),
-		letterOrder: make([]int, 160),
+func TestAuthoredPagesUseReusableGlyphCycle(t *testing.T) {
+	game := &Game{}
+	game.initTextPages()
+	config, err := presets.NonamenoGlyphPages(game.textPages, 0)
+	if err != nil {
+		t.Fatal(err)
 	}
-	for i := range game.letters {
-		game.letters[i].position.z = float64((i * 73) % len(game.letters))
-		game.letterOrder[i] = i
+	cycle, err := motion.NewGlyphPageCycle(config)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	game.sortLettersByDepth()
-	for i := 1; i < len(game.letterOrder); i++ {
-		previous := game.letters[game.letterOrder[i-1]].position.z
-		current := game.letters[game.letterOrder[i]].position.z
-		if previous > current {
-			t.Fatalf("depths at %d are not sorted: %v > %v", i, previous, current)
-		}
-	}
-	if allocations := testing.AllocsPerRun(20, game.sortLettersByDepth); allocations != 0 {
-		t.Fatalf("sort allocations = %v, want 0", allocations)
+	if cycle.Count() != 160 || cycle.Glyph(0).Rune != '-' {
+		t.Fatalf("authored page was not mapped to the 20-by-8 grid")
 	}
 }
 
@@ -114,42 +107,5 @@ func BenchmarkMusicStreamRead4096(b *testing.B) {
 		if _, err := player.Read(buffer); err != nil {
 			b.Fatal(err)
 		}
-	}
-}
-
-func BenchmarkTweenUpdateFrame(b *testing.B) {
-	position := Position{}
-	tweens := make([]*Tween, 160)
-	for i := range tweens {
-		tweens[i] = newTweenAt(Position{}, Position{x: 1, y: 1, z: 1}, 1e12, 0, "ElasticOut", nil, 0)
-	}
-
-	now := 0.0
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		now += 16.0
-		for _, tween := range tweens {
-			tween.updateAt(&position, now)
-		}
-	}
-	benchmarkPosition = position
-}
-
-func BenchmarkLetterDepthSort(b *testing.B) {
-	game := &Game{
-		letters:     make([]Letter, 160),
-		letterOrder: make([]int, 160),
-	}
-	for i := range game.letters {
-		game.letters[i].position.z = float64((i * 73) % len(game.letters))
-		game.letterOrder[i] = i
-	}
-	game.sortLettersByDepth()
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		game.sortLettersByDepth()
 	}
 }
