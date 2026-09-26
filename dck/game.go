@@ -41,112 +41,6 @@ var (
 	musicData = originalassets.DCKAssetMusicData()
 )
 
-// ScrollText manages horizontal scrolling text with sine wave distortion
-type ScrollText struct {
-	renderer   *scrolling.Scrolling
-	text       string
-	font       *scrolling.Atlas
-	scrollX    float64
-	speed      float64
-	textWidth  float64
-	sineParams [2]SineParam
-}
-
-// SineParam represents sine wave parameters for text distortion
-type SineParam struct {
-	value   float64
-	amp     float64
-	inc     float64
-	offset  float64
-	sinStep float64
-	cosStep float64
-}
-
-func newSineParam(value, amp, inc, offset float64) SineParam {
-	sinStep, cosStep := math.Sincos(offset)
-	return SineParam{
-		value: value, amp: amp, inc: inc, offset: offset,
-		sinStep: sinStep, cosStep: cosStep,
-	}
-}
-
-func (p SineParam) advance(sine, cosine float64) (float64, float64) {
-	return sine*p.cosStep + cosine*p.sinStep,
-		cosine*p.cosStep - sine*p.sinStep
-}
-
-// NewScrollText creates a new scrolling text
-func NewScrollText(text string, font *scrolling.Atlas, speed float64) *ScrollText {
-	return &ScrollText{
-		text:      text,
-		font:      font,
-		scrollX:   float64(ScreenWidth),
-		speed:     speed,
-		textWidth: float64(len(text)) * font.Metrics().LineHeight(),
-		sineParams: [2]SineParam{
-			newSineParam(0, 15, 0.3, 0.06),
-			newSineParam(0, 15, 0.2, -0.04),
-		},
-	}
-}
-
-// Update updates the scroll position
-func (st *ScrollText) Update() {
-	st.scrollX -= st.speed
-
-	if st.scrollX < -st.textWidth {
-		st.scrollX = float64(ScreenWidth)
-	}
-
-	// Update sine parameters
-	for i := range st.sineParams {
-		st.sineParams[i].value += st.sineParams[i].inc
-	}
-}
-
-// Draw draws the scrolling text with sine distortion
-func (st *ScrollText) Draw(dst *ebiten.Image, baseY float64) {
-	width := float64(st.font.Metrics().LineHeight())
-	first := 0
-	if st.scrollX <= -width {
-		first = int(math.Floor((-width-st.scrollX)/width)) + 1
-	}
-	if first >= len(st.text) {
-		return
-	}
-	if st.renderer == nil {
-		images := make([]*ebiten.Image, len(st.text))
-		for i := range st.text {
-			images[i], _, _ = st.font.ExactGlyph(rune(st.text[i]))
-		}
-		var err error
-		st.renderer, err = scrolling.FromImages(images, width)
-		if err != nil {
-			panic(err)
-		}
-	}
-	var sines, cosines [2]float64
-	for i, param := range st.sineParams {
-		sines[i], cosines[i] = math.Sincos(param.value + float64(first)*param.offset)
-	}
-	state := scrolling.IdentityState()
-	state.X = st.scrollX
-	state.First = first
-	state.Map = func(s scrolling.Sample, op *ebiten.DrawImageOptions) bool {
-		if s.X >= float64(ScreenWidth) {
-			return false
-		}
-		yOffset := st.sineParams[0].amp*sines[0] + st.sineParams[1].amp*sines[1]
-		op.GeoM.Reset()
-		op.GeoM.Translate(s.X, baseY+yOffset)
-		for index, param := range st.sineParams {
-			sines[index], cosines[index] = param.advance(sines[index], cosines[index])
-		}
-		return true
-	}
-	st.renderer.DrawAt(dst, state)
-}
-
 // Game represents the main game state
 type Game struct {
 	// Images
@@ -160,9 +54,10 @@ type Game struct {
 
 	// Effects
 	starfield    *sprites.ProjectedField
-	scrollText   *ScrollText
+	scrollText   *scrolling.Scrolling
 	glyphPages   *motion.GlyphPageCycle
 	pageRenderer *sprites.GlyphPages
+	scrollTick   uint64
 
 	// Animation state
 	animationEpoch time.Time
@@ -219,7 +114,17 @@ func NewGame() *Game {
 
 	if g.font8 != nil {
 		scrollMsg := "AS ALWAYS I DUNNO WHAT TO WRITE ON THOSE STUPID SCROLLTEXT... SO HERE IS A LITTLE GREETINGS LIST :   TOTORMAN    SINK     BADBRAIN     MURDOCK     JFAH     HEMOROIDS     TLB     TCB     ULM     OVR     MEGABUSTERS     DHS     PARADOX     REZ     RAZOR     DEMO WILL NEVER DIE ......         "
-		g.scrollText = NewScrollText(scrollMsg, g.font8, 1)
+		scrollConfig, err := presets.NonamenoBottomScroll(scrollMsg, g.font8.Face(), presets.NonamenoScrollOptions{
+			Width: ScreenWidth, BaselineY: 480 - 8 - 30, TicksPerSecond: 60,
+			PixelsPerTick: 1, Gap: ScreenWidth + 1,
+		})
+		if err != nil {
+			panic(err)
+		}
+		g.scrollText, err = scrolling.New(scrollConfig)
+		if err != nil {
+			panic(err)
+		}
 	}
 
 	if g.font32 != nil {
@@ -340,7 +245,10 @@ func (g *Game) Update() error {
 
 	// Update scroll text
 	if g.scrollText != nil {
-		g.scrollText.Update()
+		g.scrollTick++
+		if err := g.scrollText.Update(kit.Frame{Tick: g.scrollTick, Time: float64(g.scrollTick) / 60}); err != nil {
+			return err
+		}
 	}
 
 	if g.glyphPages != nil {
@@ -371,7 +279,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// Draw scrolling text at bottom
 	if g.scrollText != nil {
-		g.scrollText.Draw(screen, 480-8-30)
+		g.scrollText.Draw(screen)
 	}
 
 	if g.pageRenderer != nil {
@@ -386,6 +294,10 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 
 // Cleanup releases resources
 func (g *Game) Cleanup() {
+	if g.scrollText != nil {
+		_ = g.scrollText.Close()
+		g.scrollText = nil
+	}
 	if g.audioPlayer != nil {
 		_ = g.audioPlayer.Close()
 		g.audioPlayer = nil

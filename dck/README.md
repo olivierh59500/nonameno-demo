@@ -15,3 +15,9 @@ entrance, 1-second elastic exit, depth sorting and completion barriers are
 configured by `presets.NonamenoGlyphPages`. The page strings and initial delay
 choice remain here. The delay generators can also produce serpentine,
 mirrored-column or spiral entrances for other fonts and grid sizes.
+
+The small bottom scroll uses the same `scrolling.New` pipeline as the other
+screens. `presets.NonamenoBottomScroll` supplies a two-sine harmonic mode,
+one-pixel-per-tick movement and the original strict restart gap. Changing its
+`Gap` option to zero makes the message follow itself continuously. The font,
+text, speed, gap and both waves remain editable parameters.

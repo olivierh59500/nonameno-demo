@@ -81,15 +81,17 @@ func TestAuthoredPagesUseReusableGlyphCycle(t *testing.T) {
 	}
 }
 
-func TestSineParamRecurrenceMatchesDirectCalculation(t *testing.T) {
-	param := newSineParam(0.37, 15, 0.3, -0.04)
-	sine, cosine := math.Sincos(param.value)
-	for i := 0; i < 1000; i++ {
-		want := math.Sin(param.value + float64(i)*param.offset)
-		if difference := math.Abs(sine - want); difference > 1e-12 {
-			t.Fatalf("sine %d differs by %g", i, difference)
+func TestBottomScrollWavesMatchAuthoredPhases(t *testing.T) {
+	waves := motion.Waves(presets.NonamenoBottomWaves(8, 60))
+	for tick := 0; tick < 1000; tick += 7 {
+		for index := 0; index < 80; index++ {
+			want := 15*math.Sin(float64(tick)*.3+float64(index)*.06) +
+				15*math.Sin(float64(tick)*.2-float64(index)*.04)
+			got := waves.At(float64(index*8), float64(tick)/60)
+			if math.Abs(got-want) > 1e-12 {
+				t.Fatalf("tick %d glyph %d: %.12f != %.12f", tick, index, got, want)
+			}
 		}
-		sine, cosine = param.advance(sine, cosine)
 	}
 }
 
