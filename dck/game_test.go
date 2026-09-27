@@ -83,12 +83,15 @@ func TestAuthoredPagesUseReusableGlyphCycle(t *testing.T) {
 
 func TestBottomScrollWavesMatchAuthoredPhases(t *testing.T) {
 	waves := motion.Waves(presets.NonamenoBottomWaves(8, 60))
+	// The shared effect converts ticks to seconds; the two equivalent products
+	// can differ slightly after floating-point rounding at later ticks.
+	const tolerance = 2e-12
 	for tick := 0; tick < 1000; tick += 7 {
 		for index := 0; index < 80; index++ {
 			want := 15*math.Sin(float64(tick)*.3+float64(index)*.06) +
 				15*math.Sin(float64(tick)*.2-float64(index)*.04)
 			got := waves.At(float64(index*8), float64(tick)/60)
-			if math.Abs(got-want) > 1e-12 {
+			if math.Abs(got-want) > tolerance {
 				t.Fatalf("tick %d glyph %d: %.12f != %.12f", tick, index, got, want)
 			}
 		}
