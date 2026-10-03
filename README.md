@@ -3,6 +3,25 @@
 Native Go/Ebitengine implementation of the NONAMENO demo. Le projet cible macOS/desktop et Android `arm64-v8a` avec le
 même moteur de jeu.
 
+<!-- Project showcase -->
+## Screenshots
+
+[![The Nonameno logo above curved text pages and a starfield](docs/media/screenshot-1.png)](docs/media/screenshot-1.png)
+
+The Nonameno logo above curved text pages and a starfield.
+
+## Video
+
+[![Animated preview of Nonameno Demo](docs/media/preview.gif)](https://github.com/olivierh59500/nonameno-demo/raw/refs/heads/main/docs/media/preview.mp4)
+
+**[Watch or download the 24-second MP4 preview with sound](https://github.com/olivierh59500/nonameno-demo/raw/refs/heads/main/docs/media/preview.mp4)**
+
+This preview is captured from the Go production.
+
+The animated image is silent; the MP4 includes the soundtrack.
+
+<!-- End project showcase -->
+
 ## Fonctionnalités
 
 - champ d’étoiles 3D avec traînées ;
